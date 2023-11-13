@@ -273,8 +273,10 @@ class ScoringParser():
                 # that's the next match number.
                 lowest_num = min(self._upcoming_matches.keys())
                 self._cur_match_num = lowest_num
-                print(f'Unsure about last match number. Assuming next match is'+
-                      f' {self._cur_match_num} based on upcoming match table.')
+                self.parse_match_phase()
+                print(f'Unsure about last match number. Assuming next match is '+
+                      f'{self._cur_match_phase} {self._cur_match_num} based on '+
+                      'upcoming match table.')
             else:
                 # Advance the match number
                 self._cur_match_num += 1
@@ -288,8 +290,10 @@ class ScoringParser():
                 # Means no more upcoming matches, we've reached the end of the
                 #  current phase
                 blank_table = {}
-                for color in self.QUAD_COLORS:
-                    blank_table[color] = ''
+                for ridx in self._field_fs.keys():
+                    blank_table[ridx] = {}
+                    for color in self.QUAD_COLORS:
+                        blank_table[ridx][color] = ''
                 self.set_quadrant_labels(blank_table)
                 self.set_timer_label('')
                 self.set_match_label('','')
@@ -320,7 +324,7 @@ class ScoringParser():
         elem_rows = root_parse('table > tbody > tr')
         if not elem_rows:
             # no rows found
-            print('Couldn''t find the rows for the upcoming matches.')
+            print('Couldn\'t find the rows for the upcoming matches. That probably means we\'re at the end to the current phase.')
             return {}
         
         for elem_row in elem_rows.items():
@@ -354,6 +358,38 @@ class ScoringParser():
         #print(f'upcoming match table: {ret_dict}')
         return ret_dict
     # end of parse_upcoming_matches_table
+    
+    def parse_match_phase(self):
+        addr = self._base_addr + '/phase'
+        
+        try:
+            resp = requests.get(addr, timeout=self.CONNECTION_TIMEOUT)
+        except requests.exceptions.Timeout:
+            print('Request timed out while getting phase schedule.')
+            return
+        
+        if resp is None:
+            print('Request failed while getting phase schedule.')
+            return
+            
+        if resp.status_code != 200:
+            print(f'Request failed with code {resp.status_code} while getting phase schedule.')
+            return
+        
+        root_parse = pq(resp.content)
+        
+        elem_phase = root_parse('h2')
+        if not elem_phase:
+            # no phase found
+            print('Couldn\'t find phase header line in the phase schedule.')
+            return
+            
+        if elem_phase[0].text[-6:] == ' Phase':
+            self._cur_match_phase = elem_phase[0].text[:-6]
+        else:
+            print(f'Not sure how to parse the phase from the header text "{elem_phase[0].text}".')
+    # end of parse_match_phase
+    
     
     def set_all_labels_to_current(self):
         if not self._cfg['manual_timer']:
