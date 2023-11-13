@@ -14,7 +14,7 @@ class ScoringParser():
         self._stop_parsing_flag = threading.Event()
         self.CONNECTION_RETRY_DELAY = 1.0
         self.CONNECTION_TIMEOUT = 5.0
-        self.PARSING_PERIOD = 0.5
+        self.PARSING_PERIOD = config['parsing_period']
         
         self.QUAD_COLORS = ['red', 'green', 'blue', 'yellow']
         
@@ -29,8 +29,12 @@ class ScoringParser():
         self._cur_match_phase = 'Seeding'
         self._cur_match_num = 0
         self._cur_match_table = {}
+        self._prev_match_phase = ''
+        self._prev_match_num = 0
+        self._prev_match_table = {}
         
         self._cur_web_time = ''
+        self._prev_timer_text = None
         
         self._cur_manual_timer_seconds = 0
         self._last_text_timer = ''
@@ -406,15 +410,22 @@ class ScoringParser():
     # end of set_all_labels_to_current
     
     def set_timer_label(self, timer_text):
+        if self._prev_timer_text == timer_text:
+            # nothing to do, the lable hasn't changed.
+            return
         if self._timer_f is not None:
             # clear the file, write it, and flush it
             self._timer_f.truncate(0)
             self._timer_f.seek(0)
             self._timer_f.write(timer_text)
             self._timer_f.flush()
+        self._prev_timer_text = timer_text
     # end of set_timer_label
     
-    def set_match_label(self, match_phase, match_num):
+    def set_match_label(self, match_phase, match_num, force_rewrite=False):
+        if self._prev_match_num == match_num and self._prev_match_phase == match_phase and not force_rewrite:
+            # nothing to do, the label hasn't changed.
+            return
         if self._mnum_f is not None:
             if self._cfg['show_match_phase']:
                 match_string = f'{match_phase} {match_num}'
@@ -425,9 +436,15 @@ class ScoringParser():
             self._mnum_f.seek(0)
             self._mnum_f.write(match_string)
             self._mnum_f.flush()
+        self._prev_match_num = match_num
+        self._prev_match_phase = match_phase
     # end of set_match_label
     
-    def set_quadrant_labels(self, match_table):
+    def set_quadrant_labels(self, match_table, force_rewrite=False):
+        if self._prev_match_table == match_table and not force_rewrite:
+            # nothing to do, the table hasn't changed.
+            return
+        self._prev_match_table = {}
         for field_num in match_table.keys():
             for color in self.QUAD_COLORS:
                 if self._field_fs[field_num][color] is not None:
@@ -437,6 +454,8 @@ class ScoringParser():
                     self._field_fs[field_num][color].write(
                             match_table[field_num][color])
                     self._field_fs[field_num][color].flush()
+            # need to copy one field at a time to prev match table (to get a deep copy)
+            self._prev_match_table[field_num] = match_table[field_num].copy()
     # end of set_quadrant_labels
     
     def set_manual_timer_text(self):

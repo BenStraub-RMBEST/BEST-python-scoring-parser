@@ -4,6 +4,9 @@ base_address: http://127.0.0.1:9268
 # All file paths will be relative to this path:
 rel_file_path: C:\Users\RM BEST\Documents\obs_text
 
+# how long to go between parsing queries, in seconds
+parsing_period: 0.1
+
 # Whether or not to use a manual timer to overide the one from the scoring manager
 manual_timer: false
 
