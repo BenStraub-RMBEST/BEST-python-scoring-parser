@@ -1,0 +1,28 @@
+# Base URL for the PC Scoring Manager, including 'http://'
+base_address: http://127.0.0.1:9268
+
+# All file paths will be relative to this path:
+rel_file_path: C:\Users\RM BEST\Documents\obs_text
+
+# Whether or not to use a manual timer to overide the one from the scoring manager
+manual_timer: false
+
+# Whether to auto-switch to the next upcoming match
+auto_switchover: true
+# Amount of time in seconds after a match ends to wait before
+# automatically switching labels to the next upcoming match.
+switchover_time: 10.0
+
+# Whether to include the phase (e.g. "Seeding") in the match_num_file along
+#  with the match number
+show_match_phase: true
+
+timer_file: timer.txt
+match_num_file: match_num.txt
+
+fields:
+# if you have multiple fields, add multiple sets of params (starting with the dash)
+  - red_file:     f1_red.txt
+    green_file:   f1_green.txt
+    yellow_file:  f1_yellow.txt
+    blue_file:    f1_blue.txt
