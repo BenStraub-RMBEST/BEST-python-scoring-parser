@@ -1,9 +1,6 @@
 # Base URL for the PC Scoring Manager, including 'http://'
 base_address: http://127.0.0.1:9268
 
-# All file paths will be relative to this path:
-rel_file_path: C:\Users\RM BEST\Documents\obs_text
-
 # how long to go between parsing queries, in seconds
 parsing_period: 0.1
 
@@ -25,8 +22,25 @@ switchover_time: 10.0
 #  with the match number
 show_match_phase: true
 
+# Use OBS websockets instead of files.
+#  If true, it will make all changes (including text) via websockets. All
+#           file-related configs are ignored.
+#  If false (or omitted), it will only make changes via text files. All
+#           OBS websocket-related configs (and "source" related configs) are ignored.
+use_obs_websocket: true
+
+obs_websocket_addr: 127.0.0.1
+obs_websocket_port: 4455
+obs_websocket_pw: Ben_is_cool
+
+# All file paths will be relative to this path:
+rel_file_path: C:\Users\RM BEST\Documents\obs_text
+
 timer_file: timer.txt
 match_num_file: match_num.txt
+
+timer_source: TimerText
+match_num_source: MatchNumText
 
 fields:
 # if you have multiple fields, add multiple sets of params (starting with the dash)
@@ -34,3 +48,7 @@ fields:
     green_file:   f1_green.txt
     yellow_file:  f1_yellow.txt
     blue_file:    f1_blue.txt
+    red_source:    Red
+    green_source:  Green
+    yellow_source: Yellow
+    blue_source:   Blue

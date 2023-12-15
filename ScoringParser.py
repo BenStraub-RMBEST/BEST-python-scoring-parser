@@ -5,6 +5,8 @@ import math
 from pyquery import PyQuery as pq
 from flask import Flask, jsonify
 import logging
+from obswebsocket import obsws, requests as obsreqs
+import sys
 
 class ScoringParser():
     def __init__(self, config):
@@ -50,16 +52,57 @@ class ScoringParser():
             except FileNotFoundError:
                 print(f'Could not open file "{os.path.join(rel_path, fname)}", not found.')
                 
-        # open up all the files:
-        self._timer_f = try_open_file(config['timer_file'], config['rel_file_path'])
-        self._mnum_f = try_open_file(config['match_num_file'], config['rel_file_path'])
-        self._field_fs = {}
-        for idx, field in enumerate(config['fields']):
-            self._field_fs[idx+1] = {}
-            for color in self.QUAD_COLORS:
-                self._field_fs[idx+1][color] = try_open_file(
-                                field[color+'_file'], config['rel_file_path'])
-        
+        if ('use_obs_websocket' not in config) or (not config['use_obs_websocket']):
+            # do file-based changes
+            # open up all the files:
+            self._timer_f = try_open_file(config['timer_file'], config['rel_file_path'])
+            self._mnum_f = try_open_file(config['match_num_file'], config['rel_file_path'])
+            self._field_fs = {}
+            for idx, field in enumerate(config['fields']):
+                self._field_fs[idx+1] = {}
+                for color in self.QUAD_COLORS:
+                    self._field_fs[idx+1][color] = try_open_file(
+                                    field[color+'_file'], config['rel_file_path'])
+            # set the right label change functions
+            self.set_timer_label = self.set_timer_label_file
+            self.set_match_label = self.set_match_label_file
+            self.set_quadrant_labels = self.set_quadrant_labels_file
+        else:
+            # do OBS websocket -based changes
+            self._obs_client = obsws(config['obs_websocket_addr'], config['obs_websocket_port'], config['obs_websocket_pw'])
+            self._obs_client.connect()
+            
+            
+            if self._obs_config_and_validate_text(config['timer_source']):
+                self._timer_src = config['timer_source']
+            else:
+                print('Errors encountered while validating timer source.')
+                print('WARNING: Will continue with NO timer source setting.')
+                self._timer_src = None
+                
+            
+            if self._obs_config_and_validate_text(config['match_num_source']):
+                self._mnum_src = config['match_num_source']
+            else:
+                print('Errors encountered while validating match num source.')
+                print('WARNING: Will continue with NO match num source setting.')
+                self._mnum_src = None
+                
+            self._field_srcs = {}
+            for idx, field in enumerate(config['fields']):
+                self._field_srcs[idx+1] = {}
+                for color in self.QUAD_COLORS:
+                    if self._obs_config_and_validate_text(field[color+'_source']):
+                        self._field_srcs[idx+1][color] = field[color+'_source']
+                    else:
+                        print(f'Errors encountered while validating quadrant [{idx+1},{color}] source.')
+                        print(f'WARNING: Will continue with NO quadrant [{idx+1},{color}] source setting.')
+                        self._field_srcs[idx+1][color] = None
+            # set the right label change functions
+            self.set_timer_label = self.set_timer_label_obsws
+            self.set_match_label = self.set_match_label_obsws
+            self.set_quadrant_labels = self.set_quadrant_labels_obsws
+            
         # parse team numbers:
         self.parse_team_numbers()
         #print(f'{self.team_name2num=}')
@@ -80,6 +123,32 @@ class ScoringParser():
         if config['host_timer_webserver']:
             self.init_webserver()
 
+
+    def _obs_config_and_validate_text(self, src_name):
+        if src_name is None or src_name == '':
+            print(f'ERROR: no source name.')
+            return False
+            
+        resp = self._obs_client.call(obsreqs.GetInputSettings(inputName=src_name))
+        
+        if not resp.status:
+            print(f'ERROR: No matching source name: "{src_name}"')
+            return False
+        if resp.getInputKind() != 'text_gdiplus_v2':
+            print(f'ERROR: Source type for "{src_name}" is "{resp.getInputKind()}"; expected "text_gdiplus_v2"')
+            return False
+        
+        settings = resp.getInputSettings()
+        if settings['read_from_file']:
+            print(f'Reconfiguring source "{src_name}" to NOT read from file.')
+            if not self._obs_client.call(obsreqs.SetInputSettings(inputName=src_name, inputSettings={'read_from_file': False})).status:
+                print('ERROR: Failed setting settings on source.')
+                return False
+        print(f'Clearing text on source "{src_name}".')
+        if not self._obs_client.call(obsreqs.SetInputSettings(inputName=src_name, inputSettings={'text': ''})).status:
+            print('ERROR: Failed setting text settings on source.')
+            return False
+        return True
         
     def make_connection_thread_func(self):
         addr = self._base_addr + "/Marquee/Match"
@@ -464,7 +533,7 @@ class ScoringParser():
             self.set_quadrant_labels(self._cur_match_table)
     # end of set_all_labels_to_current
     
-    def set_timer_label(self, timer_text):
+    def set_timer_label_file(self, timer_text):
         if self._prev_timer_text == timer_text:
             # nothing to do, the lable hasn't changed.
             return
@@ -477,7 +546,7 @@ class ScoringParser():
         self._prev_timer_text = timer_text
     # end of set_timer_label
     
-    def set_match_label(self, match_phase, match_num, force_rewrite=False):
+    def set_match_label_file(self, match_phase, match_num, force_rewrite=False):
         if self._prev_match_num == match_num and self._prev_match_phase == match_phase and not force_rewrite:
             # nothing to do, the label hasn't changed.
             return
@@ -495,7 +564,7 @@ class ScoringParser():
         self._prev_match_phase = match_phase
     # end of set_match_label
     
-    def set_quadrant_labels(self, match_table, force_rewrite=False):
+    def set_quadrant_labels_file(self, match_table, force_rewrite=False):
         if self._prev_match_table == match_table and not force_rewrite:
             # nothing to do, the table hasn't changed.
             return
@@ -512,6 +581,61 @@ class ScoringParser():
             # need to copy one field at a time to prev match table (to get a deep copy)
             self._prev_match_table[field_num] = match_table[field_num].copy()
     # end of set_quadrant_labels
+    
+    def set_timer_label_obsws(self, timer_text):
+        if self._prev_timer_text == timer_text:
+            # nothing to do, the lable hasn't changed.
+            return
+        if self._timer_src is not None:
+            if not self._obs_client.call(obsreqs.SetInputSettings(
+                        inputName=self._timer_src,
+                        inputSettings={'text': timer_text}
+                    )).status:
+                print('ERROR: Failed to set timer text via OBS websocket.')
+                return
+        self._prev_timer_text = timer_text
+    # end of set_timer_label
+    
+    def set_match_label_obsws(self, match_phase, match_num, force_rewrite=False):
+        if self._prev_match_num == match_num and self._prev_match_phase == match_phase and not force_rewrite:
+            # nothing to do, the label hasn't changed.
+            return
+        if self._mnum_src is not None:
+            if self._cfg['show_match_phase']:
+                match_string = f'{match_phase} {match_num}'
+            else:
+                match_string = str(match_num)
+            if not self._obs_client.call(obsreqs.SetInputSettings(
+                        inputName=self._mnum_src,
+                        inputSettings={'text': match_string}
+                    )).status:
+                print('ERROR: Failed to set match number text via OBS websocket.')
+                return
+        self._prev_match_num = match_num
+        self._prev_match_phase = match_phase
+    # end of set_match_label
+    
+    def set_quadrant_labels_obsws(self, match_table, force_rewrite=False):
+        if self._prev_match_table == match_table and not force_rewrite:
+            # nothing to do, the table hasn't changed.
+            return
+        self._prev_match_table = {}
+        
+        for field_num in match_table.keys():
+            had_error = False
+            for color in self.QUAD_COLORS:
+                if self._field_srcs[field_num][color] is not None:
+                    if not self._obs_client.call(obsreqs.SetInputSettings(
+                                inputName=self._field_srcs[field_num][color],
+                                inputSettings={'text': match_table[field_num][color]}
+                            )).status:
+                        print(f'ERROR: Failed to set quadrant [{field_num},{color}] text via OBS websocket.')
+                        had_error = True
+            if not had_error:
+                # need to copy one field at a time to prev match table (to get a deep copy)
+                self._prev_match_table[field_num] = match_table[field_num].copy()
+    # end of set_quadrant_labels
+    
     
     def set_manual_timer_text(self):
         seconds = math.floor(self._cur_manual_timer_seconds % 60)
