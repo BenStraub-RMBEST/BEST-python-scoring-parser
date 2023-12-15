@@ -10,6 +10,11 @@ parsing_period: 0.1
 # Whether or not to use a manual timer to overide the one from the scoring manager
 manual_timer: false
 
+# Whether to run a webserver for a timer page
+host_timer_webserver: true
+webserver_hostip: 0.0.0.0
+webserver_port: 9269
+
 # Whether to auto-switch to the next upcoming match
 auto_switchover: true
 # Amount of time in seconds after a match ends to wait before

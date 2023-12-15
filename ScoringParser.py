@@ -3,7 +3,8 @@ import threading
 import os.path
 import math
 from pyquery import PyQuery as pq
-
+from flask import Flask, jsonify
+import logging
 
 class ScoringParser():
     def __init__(self, config):
@@ -71,6 +72,9 @@ class ScoringParser():
         self._connect_thread.start()
         
         
+        # set up webserver, if enabled
+        if config['host_timer_webserver']:
+            self.init_webserver()
 
         
     def make_connection_thread_func(self):
@@ -151,9 +155,13 @@ class ScoringParser():
                     # no timer found, loop over and try again
                     print('Couldn''t find the timer field')
                     continue
-                self._cur_web_time = elem_timer[0].text
+                timer_text = elem_timer[0].text
+                if (timer_text == '00:00' or timer_text == '0:00') and (self._cur_web_time == ''):
+                    pass # don't change the blank timer text field
+                else:
+                    self._cur_web_time = elem_timer[0].text
                 
-                if (self._cur_web_time == '00:00') or (self._cur_web_time == '0:00'):
+                if (timer_text == '00:00') or (timer_text == '0:00'):
                     # match is over, so we do need to handle between-match condition
                     need_to_handle_between_matches = True
                     # For the first time (when we're just now becoming between matches)
@@ -288,6 +296,7 @@ class ScoringParser():
             try:
                 cur_match_table = self._upcoming_matches[self._cur_match_num]
                 self.set_quadrant_labels(cur_match_table)
+                self._cur_web_time = '' # !!!
                 self.set_timer_label('')
                 self.set_match_label(self._cur_match_phase,self._cur_match_num)
             except KeyError:
@@ -299,6 +308,7 @@ class ScoringParser():
                     for color in self.QUAD_COLORS:
                         blank_table[ridx][color] = ''
                 self.set_quadrant_labels(blank_table)
+                self._cur_web_time = '' # !!!
                 self.set_timer_label('')
                 self.set_match_label('','')
     # end of upcoming_match_switchover
@@ -464,4 +474,56 @@ class ScoringParser():
         timer_text = f'{minutes:01d}:{seconds:02d}'
         self.set_timer_label(timer_text)
         
-    
+    def init_webserver(self):
+        try:
+            ip = self._cfg['webserver_hostip']
+        except KeyError:
+            ip = '0.0.0.0'
+        try:
+            port = self._cfg['webserver_port']
+        except KeyError:
+            port = 9269
+        
+        app = Flask(__name__)
+        
+        @app.route('/timer')
+        def timer_page():
+            page = '<html><head><style>body {background-color: black;' +\
+               'font-family: "Trebuchet MS", sans-serif;' +\
+               '}</style></head><body> ' +\
+               '<div style="width: 100%; height: auto; bottom: 0px; top: 0px; left: 0; position: absolute;"> ' +\
+               '<div id="timer" style="height: 100vh; display: flex; justify-content: center; align-items: center; ' +\
+               'font-size: 50vh; color: white;">00:00</div></div></body></html>' +\
+               '<script type="text/javascript" src="'+self._cfg['base_address']+'/js/jquery-3.4.1.min.js"></script>' +\
+               '<script type="text/javascript" src="'+self._cfg['base_address']+'/js/bootstrap.min.js"></script>' +\
+               '<script type="text/javascript" src="'+self._cfg['base_address']+'/js/jquery-ui.min.js"></script>' +\
+               '<script type="text/javascript" src="'+self._cfg['base_address']+'/js/jquery.ba-throttle-debounce.min.js"></script>' +\
+               '<script>' +\
+               'function RefreshMatch() { $.get("/timer.json", function(data) { console.log(data); $("#timer").html(data.timer); }); }' +\
+               '''
+               function RefreshMatch2() {
+                    var xmlHttp = new XMLHttpRequest();
+                    xmlHttp.onreadystatechange = function() { 
+                        if (xmlHttp.readyState == 4 && xmlHttp.status == 200)
+                            $("#timer").html(xmlHttp.responseText);
+                    }
+                    xmlHttp.open("GET", "'''+self._cfg['base_address']+'''/Marquee/Match", true); // true for asynchronous 
+                    xmlHttp.send(null);
+                } 
+                ''' + '''
+                $(document)
+                    .ready(function() {
+                        $('.navbar').hide();
+                        $('body').css('grid-template-rows', 'auto');
+                        setInterval(RefreshMatch, 100);
+                    });
+                ''' +\
+               '</script>'
+            return page
+        @app.route('/timer.json')
+        def timer_json():
+            return jsonify({'timer': self._cur_web_time})
+            
+        log = logging.getLogger('werkzeug')
+        log.setLevel(logging.ERROR)
+        threading.Thread(target=lambda: app.run(host=ip, port=port, debug=False, use_reloader=False)).start()
