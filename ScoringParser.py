@@ -60,6 +60,10 @@ class ScoringParser():
                 self._field_fs[idx+1][color] = try_open_file(
                                 field[color+'_file'], config['rel_file_path'])
         
+        # parse team numbers:
+        self.parse_team_numbers()
+        #print(f'{self.team_name2num=}')
+        #print(f'{self.team_num2name=}')
         
         # set up threads
         self._parsing_thread = None
@@ -403,6 +407,47 @@ class ScoringParser():
         else:
             print(f'Not sure how to parse the phase from the header text "{elem_phase[0].text}".')
     # end of parse_match_phase
+    
+    def parse_team_numbers(self):
+        addr = self._base_addr + '/lookup'
+        
+        self.team_num2name = {}
+        self.team_name2num = {}
+        
+        try:
+            resp = requests.get(addr, timeout=self.CONNECTION_TIMEOUT)
+        except requests.exceptions.Timeout:
+            print('Request timed out while getting team number lookup.')
+            return
+            
+        if resp is None:
+            print('Request failed while getting team number lookup.')
+            return
+            
+        root_parse = pq(resp.content)
+        
+        elem_team_select = root_parse('#LookupInfo > .row > select.form-control:first-of-type')
+        if not elem_team_select:
+            # no team list
+            print('Couldn\'t find team list selection in lookup page.')
+            return
+            
+        elem_options = elem_team_select('option[selected] ~ option') # skip the first (selected) option, get the rest
+        if not elem_options:
+            # no team list
+            print('Couldn\'t find team list options in lookup page.')
+            return
+        
+        for elem_option in elem_options:
+            try:
+                team_num = int(elem_option.values()[-1])
+                team_name = elem_option.text.split(' (')[0]
+                self.team_num2name[team_num] = team_name
+                self.team_name2num[team_name] = team_num
+            except ValueError:
+                print(f'Failed to parse number: "{elem_option.values()[-1]}". Skipping.')
+            except IndexError:
+                print(f'Indexing error for option with text "{elem_option.text}"')
     
     
     def set_all_labels_to_current(self):
