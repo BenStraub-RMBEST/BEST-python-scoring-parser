@@ -544,18 +544,9 @@ class ScoringParser():
                '<script type="text/javascript" src="'+self._cfg['base_address']+'/js/jquery-ui.min.js"></script>' +\
                '<script type="text/javascript" src="'+self._cfg['base_address']+'/js/jquery.ba-throttle-debounce.min.js"></script>' +\
                '<script>' +\
-               'function RefreshMatch() { $.get("/timer.json", function(data) { console.log(data); $("#timer").html(data.timer); }); }' +\
+               'function RefreshMatch() { var jqxhr = $.get("/timer.json", function(data) { $("#timer").html(data.timer); })' +\
+               '.fail(function() { $("#timer").html("---");} );}' +\
                '''
-               function RefreshMatch2() {
-                    var xmlHttp = new XMLHttpRequest();
-                    xmlHttp.onreadystatechange = function() { 
-                        if (xmlHttp.readyState == 4 && xmlHttp.status == 200)
-                            $("#timer").html(xmlHttp.responseText);
-                    }
-                    xmlHttp.open("GET", "'''+self._cfg['base_address']+'''/Marquee/Match", true); // true for asynchronous 
-                    xmlHttp.send(null);
-                } 
-                ''' + '''
                 $(document)
                     .ready(function() {
                         $('.navbar').hide();
